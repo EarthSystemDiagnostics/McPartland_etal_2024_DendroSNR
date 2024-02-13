@@ -509,6 +509,7 @@ theme1<-theme(panel.grid.major = element_blank(),
 plot_list<-list()
 curves_list<-list()
 length_vec<-lapply(all_clusters, function(x) length(x))
+plot_names<-names(mean_curves)                   
 
 for(i in 1:length(mean_curves)) {
   cluster_name<-plot_names[[i]]
