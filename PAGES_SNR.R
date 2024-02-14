@@ -595,7 +595,7 @@ for(i in 1:length(curves_list)){
   class(raw)<-'spectrum'
   raw<-SpecApprox(raw)
   raw<-FilterSpec(raw, spans = c(3,5))
-  raw<-FilterSpecLog(raw, df = 0.025)
+  raw<-FilterSpecLog(raw, df = 0.1)
   raw<-AddConfInterval(raw)
   
   spec<-curves_list[[i]]
@@ -764,10 +764,10 @@ mean_curves<-signal_mean
 #             n = n())
 ###############################
 
-#Note this takes a horribly long time
+#Note this takes a horribly long time, best run on 10 or 100 iterations during development
 all_sims<-list()
 
-for(x in 1:10) {
+for(x in 1:1000) {
   sims_all<-data.frame(matrix(ncol = 7, nrow  = 0))
   run<-as.character(x)
   colnames(sims_all)<-c("freq","noise","signal","ratio","name","proxy","run")
