@@ -635,6 +635,10 @@ row.names(signal_curves)<-NULL
 #in case any density curves need to be re-assigned to MXD
 signal_curves$proxy[signal_curves$proxy=="delta Density"]<-"MXD"
 
+#maintain only high frequencies for which all crns are represented
+signal_curves<-signal_curves%>%
+  filter(freq < 0.49)                   
+
 #calculate per-cluster parameters (alpha and beta) for signal and noise estimates
 signal_betas <- signal_curves %>%
   group_by(name)%>%
