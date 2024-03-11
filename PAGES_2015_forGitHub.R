@@ -1,0 +1,777 @@
+#MMcPartland PAGES NAM2k database working analysis
+#set working directory to source file location. 
+
+#written originally in 2016 for signal-free paper, updated in 2019 for ERC project. 
+require(dplyr)
+require(tidyr)
+require(ggplot2)
+require(extrafont) 
+library(gridExtra)
+library(grid)
+library(ggplot2)
+library(lattice)
+library(scales)
+require(graphics)
+require(utils)
+require(dplR)
+require(lemon)
+require(ggforce)
+require(PaleoSpec)
+require(sp)
+require(rgdal)
+library(geosphere)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rgeos)
+library(maptools)
+library(reshape2)
+library(stars)
+library(raster)
+library(ggridges)
+library(ggpubr)
+library(cowplot)
+library(zoo)
+library(tmap)
+library(ncdf4.helpers)
+library(ncdf4)
+source("./FilterSpec.R")
+source("./SpecApprox.R")
+
+
+load("treeTSv9.Rdata")
+rm(D)
+rm(TS)
+trw<-treeTS
+rm(treeTS)
+#remove all fields which don't contain proxy information
+trw<-trw[-which(sapply(trw, function(x) (is.null(x$paleoData_proxy))))]
+
+
+#problem_crns <- c("cana319", "cana430" , "wy030" , "nm529" , "nm520", "nm512")
+#trw<-trw[sapply(trw, function(x) all(x$dataSetName != problem_crns))]
+
+#treeTs<-treeTs[sapply(treeTs, function(x) all(x$paleoData_detrendingMethod == "RCS"))]
+
+#max<-lapply(mxd, function(x) x$eps)
+#max<-lapply(max, max, na.rm = T)
+
+#sort for just tree ring with chronologies
+#mxd<-trw[sapply(trw, function(x) all(x$paleoData_proxy == "MXD"))]
+#trw<-trw[sapply(trw, function(x) all(x$paleoData_proxy == "TRW"))]
+
+#problem_crns <- c("cana319", "cana430" , "wy030" , "nm529" , "nm520")
+#trw<-trw[sapply(trw, function(x) all(x$dataSetName != problem_crns))]
+
+#option to truncate each chronology when EPS dips below 0.85 and reduce chronology size to the length of eps>0.85
+#also options to assign cutoffs for chronology length or number of cores
+#this version invokes a trivial option, nores >=1 (all years maintained)
+filt<-function(x){
+  eps<-x$eps
+  year<-x$year
+  rbar<-x$rbar
+  ncores<-x$ncores
+  paleoData_values<-x$paleoData_values
+  cutoff<-min(which(ncores>=1), na.rm = F)
+  #cutoff<-min(which(eps>=0.85), na.rm = F)
+  eps<-eps[(cutoff):length(eps)]
+  rbar<-rbar[(cutoff):length(rbar)]
+  year<-year[(cutoff):length(year)]
+  ncores<-ncores[(cutoff):length(ncores)]
+  paleoData_values<-paleoData_values[(cutoff):length(paleoData_values)]
+  #rbar<-rbar[year>1800]
+  #eps<-eps[year>1800]
+  #year<-year[year>1800]
+  x$year<-year
+  x$paleoData_values<-paleoData_values
+  x$rbar<-rbar
+  x$ncores<-ncores
+  x$eps <- eps
+  return(x)
+}
+
+trw<-lapply(trw, filt)
+
+#remove metadata fields
+pages_fin <- lapply(trw, function(x) {
+  #x[["proxy"]]<-NULL
+  x[["mode"]] <- NULL
+  x[["timeID"]]<-NULL
+  x[["whichtables"]]<-NULL
+  x[["archiveType"]]<-NULL
+  x[["dataContributor"]]<-NULL
+  x[["tagMD5"]]<-NULL
+  x[["createdBy"]]<-NULL
+  x[["lipdVersion"]]<-NULL
+  x[["geo_units"]]<-NULL
+  x[["geo_location"]]<-NULL
+  x[["geo_pages2kRegion"]]<-NULL
+  #x[["geo_siteName"]]<-NULL
+  x[["geo_geometryType"]]<-NULL
+  x[["geo_elevation"]]<-NULL
+  x[["pub1_Urldate"]]<-NULL
+  x[["pub1_author"]]<-NULL
+  x[["pub1_citeKey"]]<-NULL
+  x[["pub1_institution"]]<-NULL
+  x[["pub1_pubYear"]]<-NULL
+  x[["pub1_title"]]<-NULL
+  x[["pub1_type"]]<-NULL
+  x[["pub1_url"]]<-NULL
+  x[["pub1_DOI"]]<-NULL
+  x[["paleoNumber"]]<-NULL
+  x[["modelNumber"]]<-NULL
+  x[["tableNumber"]]<-NULL
+  x[["tableType"]]<-NULL
+  x[["yearUnits"]]<-NULL
+  x[["paleoData_paleoDataTableName"]]<-NULL
+  x[["paleoData_paleoNumber"]]<-NULL
+  x[["paleoData_paleoMeasurementTableNumber"]]<-NULL
+  x[["paleoData_measurementTableName"]]<-NULL
+  x[["paleoData_QCCertification"]]<-NULL
+  x[["paleoData_QCnotes"]]<-NULL
+  x[["paleoData_archiveGenus"]]<-NULL
+  x[["paleoData_climateCorrelation"]]<-NULL
+  x[["paleoData_climateCorrelationPval"]]<-NULL
+  x[["paleoData_description"]]<-NULL
+  x[["paleoData_pages2kID"]]<-NULL
+  x[["paleoData_paleoMeasurementTableMD5"]]<-NULL
+  x[["paleoData_tableName"]]<-NULL
+  x[["paleoData_notes"]]<-NULL
+  x[["paleoData_units"]]<-NULL
+  x[["paleoData_useInNAm2k"]]<-NULL
+  x[["paleoData_variableName"]]<-NULL
+  x[["interpretation1_basis"]]<-NULL
+  x[["interpretation1_interpDirection"]]<-NULL
+  x[["interpretation1_seasonality"]]<-NULL
+  x[["interpretation1_variable"]]<-NULL
+  x[["interpretation1_variableDetail"]]<-NULL
+  x[["interpretation1_scope"]]<-NULL
+  x[["eps-TSid"]]<-NULL
+  x[["eps-units"]]<-NULL
+  x[["rbar-TSid"]]<-NULL
+  x[["rbar-units"]]<-NULL
+  x[["ncores-TSid"]]<-NULL
+  x[["ncores-units"]]<-NULL
+  x[["pub1_dataUrl"]]<-NULL
+  x[["pub1_journal"]]<-NULL
+  x[["pub1_year"]]<-NULL
+  x[["pub1_pages"]]<-NULL
+  x[["pub1_publisher"]]<-NULL
+  x[["pub1_issue"]]<-NULL
+  x[["pub1_volume"]]<-NULL
+  x[["pub2_Urldate"]]<-NULL
+  x[["pub2_author"]]<-NULL
+  x[["pub2_citeKey"]]<-NULL
+  x[["pub2_institution"]]<-NULL
+  x[["pub2_pubYear"]]<-NULL
+  x[["pub2_title"]]<-NULL
+  x[["pub2_type"]]<-NULL
+  x[["pub2_url"]]<-NULL
+  x[["pub2_DOI"]]<-NULL
+  x[["hasResolution_hasMeanValue"]]<-NULL
+  x[["hasResolution_hasMedianValue"]]<-NULL
+  x[["hasResolution_hasMaxValue"]]<-NULL
+  x[["hasResolution_hasMinValue"]]<-NULL
+  x[["paleoData_hasMaxValue"]]<-NULL
+  x[["paleoData_hasMeanValue"]]<-NULL
+  x[["paleoData_hasMedianValue"]]<-NULL
+  x[["paleoData_hasMinValue"]]<-NULL
+  x[["paleoData_missingValue"]]<-NULL
+  x[["hasResolution_units"]]<-NULL
+  x
+})
+#pages_fin
+
+#add id
+for(i in 1:length(pages_fin)){
+  pages_fin[[i]]$id<-paste(pages_fin[[i]]$dataSetName, pages_fin[[i]]$paleoData_proxy, pages_fin[[i]]$paleoData_detrendingMethod)
+}
+
+id<-lapply(pages_fin, function(x) x$id)
+
+#saveRDS(pages_fin, file = "PAGES_crns_cleaned_nofilters.rds")
+
+
+############
+##define spatial clusters
+pages<-pages_fin
+rm(pages_fin)
+rm(id)
+rm(trw)
+rm(filt)
+
+#options for sorting here. sort out one type of detrend and either MXD or TRW, 
+#this analysis relies on running the same script for each detrending/proxy combination
+#here the example is Negative Exponential, and tree-ring width
+#to generate full analysis, this script must be run for each desired data type
+pages<-pages[sapply(pages, function(x) all(x$paleoData_detrendingMethod == "NegEx"))]
+pages<-pages[sapply(pages, function(x) all(x$paleoData_proxy == "MXD"))]
+
+flavor<-c(paste0(pages[[1]]$paleoData_proxy,"_" ,pages[[1]]$paleoData_detrendingMethod))
+
+#extract metadata
+name<-lapply(pages, function(x) x$id)
+lat<-lapply(pages, function(x) x$geo_latitude)
+lon<-lapply(pages, function(x) x$geo_longitude)
+location<-as.data.frame(as.character(name))
+location$latitude<-as.numeric(lat)
+location$longitude<-as.numeric(lon)
+colnames(location)[1]<-"code"
+
+
+#caluculate the distances between all sites and return large matrix
+m <- distm(location[3:2], location[3:2], fun = distHaversine)
+
+#remove half of observations which are redundant
+diag(m) <- NA
+m <- m * lower.tri(m)
+m[m == 0] <- NA
+
+#turn into dataframe with sitenames on the cols and rows
+names<-location$code
+m<-as.data.frame(m)
+colnames(m)<-names
+rownames(m)<-names
+
+
+#meters to kilometers
+m<-m/1000
+
+#all points within or equal to 100km of each other (true/false binary)
+#technically this will result in possible radii of 200km, where a site might be 100km from two sites, which are by definition up to 200km from each other
+m<-m<=250
+m<-as.data.frame(m)
+
+m$names<-rownames(m)
+
+#gather up the true/false matches
+m<-m %>%
+  gather("names2" , "match", 1:length(m)-1)
+
+#remove empty cells which are their own match
+m<-m %>%
+  filter(!is.na(match))
+
+#remove non-matches
+m<-m %>%
+  filter(match != FALSE)
+
+m$match<-NULL
+
+#create a list that contains each unique site with all it's matches as a list
+m <-m %>%
+  pivot_wider(names_from = names, values_from = names2, values_fn = list)
+
+m<-as.list(m)
+#un-nest one level
+m <- unlist(m,recursive=FALSE)
+
+#remove any clusters that contain less than or equal to 3 sites (including the pivot site, this eliminates all clusters of less than 4)
+m<-m[sapply(m, function(x) all(length(x)>=2))]
+
+names<-names(m)
+
+#add the pivot site to the list, and re-name each cluster
+for(i in 1:length(m)){
+  m[[i]]<-c(m[[i]], names[i])
+}
+
+names(m)<-NULL
+
+clusters<-paste0(seq_along(1:length(m)))
+clusters<-as.numeric(clusters)
+
+names(m)<-clusters
+clusters<-m
+rm(m)
+#save output if desired
+#saveRDS(clusters, file = "NegExTRW_250km.rds")
+
+#get metadata from pages
+sites<-lapply(pages, function(x) x$dataSetName)
+proxy<-lapply(pages, function(x) x$paleoData_proxy)
+lat<-lapply(pages, function(x) x$geo_latitude)
+lon<-lapply(pages, function(x) x$geo_longitude)
+startyear<-lapply(pages, function(x) min(x$year))
+endyear<-lapply(pages, function(x) max(x$year))
+meta<-data.frame(cbind(unlist(lat), unlist(lon), unlist(startyear), unlist(endyear), unlist(sites)))
+colnames(meta)<-c("lat","lon", "startyear","endyear","sites")
+meta$lat<-as.numeric(meta$lat)
+meta$lon<-as.numeric(meta$lon)
+#plot(meta$lon, meta$lat)
+id<-lapply(pages, function(x) x$id)
+names(pages)<-id
+
+coords<-meta[,c("lon", "lat")]
+data<-as.data.frame(meta$sites)
+crs<-CRS("+proj=longlat +datum=WGS84")
+
+#loop to create a list of the clusters
+all_clusters<-list()
+
+for(i in 1:length(clusters)){
+  clust<-clusters[i]
+  cluster_name<-names(clust)
+  clust<-unlist(clust, recursive = FALSE)
+  diff<-setdiff(id, clust)
+  new_clust<-pages[!names(pages) %in% diff]
+  new_clust<-lapply(new_clust, function(x)  {x$rwi <- x$paleoData_values;x})
+  new_clust<-list(new_clust)
+  names(new_clust)<-cluster_name
+  all_clusters<-c(all_clusters, new_clust)
+}
+
+
+#take the spectra of each series
+clusters_specs<-list()
+
+for(i in 1:length(all_clusters)) {
+  site<-all_clusters[i]
+  cluster_name<-names(site)
+  #print(cluster_name)
+  site<-unlist(site,recursive=FALSE)
+  spec_list<-list()
+  min_year<-lapply(site, function(x) min(x$year))
+  min_year<-max(unlist(min_year))
+  max_year<-lapply(site, function(x) max(x$year))
+  max_year<-min(unlist(max_year))
+  for(j in 1:length(site)) {
+    rwi <- site[[j]]$paleoData_values
+    name <- site[[j]]$dataSetName
+    proxy <- site[[j]]$paleoData_proxy
+    detrend<-site[[j]]$paleoData_detrendingMethod
+    year<-site[[j]]$year
+    rwi<-as.data.frame(cbind(rwi, year))
+    rwi<-rwi%>%
+      filter(year >= min_year)%>%
+      filter(year <= max_year)
+    rwi<-ts(rwi$rwi, deltat = 1)
+    spectrum<-SpecMTM(rwi)
+    spec_list[[paste0(name, "_" , proxy, "_", detrend)]] <- spectrum
+    spec_list[[j]]$detrend<-detrend
+    spec_list[[j]]$proxy<-proxy
+    spec_list[[j]]$name<-name
+  }
+  spec_list<-list(spec_list)
+  names(spec_list)<-cluster_name
+  clusters_specs<-c(clusters_specs, spec_list)
+}
+
+
+####for each cluster, calculate the mean of all spectra, keep original spectra and calculate the beta
+df_list<-list()
+sums_list<-list()
+spec_long_list<-list()
+betas_list<-list()
+
+for(j in 1:length(clusters_specs)){
+  spec_list<-clusters_specs[j]
+  cluster_name<-names(spec_list)
+  spec_list<-unlist(spec_list,recursive=FALSE)
+  spec_df<-setNames(data.frame(matrix(ncol = 4, nrow = 0)), c("freq","spec" ,"dofs","name"))
+  for(i in 1:length(spec_list)) {
+    freq <- spec_list[[i]]$freq
+    spec <- spec_list[[i]]$spec
+    dof <- spec_list[[i]]$dof
+    n <- length(spec_list)
+    name <- replicate(length(freq), names(spec_list[i]))
+    spec_bind<-cbind(freq, spec, dof, name)
+    spec_bind<-as.data.frame(spec_bind)
+    spec_df<-rbind(spec_df, spec_bind)
+    spec_df$freq<-as.numeric(spec_df$freq)
+    spec_df$spec<-as.numeric(spec_df$spec)
+    spec_df$dof<-as.numeric(spec_df$dof)
+    spec_df <- spec_df%>%
+      filter(!is.na(spec))
+    spec_sum <- spec_df %>%
+      group_by(freq) %>%
+      summarise(mean_of_all_spectra = mean(spec, na.rm = T),
+                sum_dofs = sum(dof, na.rm = T),
+                n.spec = n())
+    spec_sum$n.spec<-n
+    spec_sum<-as.data.frame(spec_sum)
+    spec_sum<-spec_sum[,c("freq","mean_of_all_spectra", "sum_dofs", "n.spec")]
+    spec_smooth<-list(spec_sum$freq, spec_sum$mean_of_all_spectra, spec_sum$sum_dofs)
+    names(spec_smooth)<-c("freq","spec","dof")
+    class(spec_smooth)<-"spectrum"
+    spec_smooth<-FilterSpec(spec_smooth, spans = c(3,5))
+    spec_smooth<-FilterSpecLog(spec_smooth, df = 0.1)
+    spec_sum$mean_of_all_spectra<-spec_smooth$spec
+    spec_long<-spec_sum %>%
+      gather("type", "val", 2:4)
+    spec_long<-spec_long[,c("freq","val","type")]
+    final<-list(spec_df)
+    sums_final<-list(spec_sum)
+    spec_long<-list(spec_long)
+    names(final)<-cluster_name
+    names(sums_final)<-cluster_name
+    names(spec_long)<-cluster_name
+  }
+  df_list<-c(df_list, final)
+  sums_list<-c(sums_list, sums_final)
+  spec_long_list<-c(spec_long_list, spec_long)
+}
+
+
+###########################calculate the spectra of each cluster
+format_list<-list()
+minmaxyears<-list()
+
+for(j in 1:length(all_clusters)){
+  sites<-all_clusters[j]
+  cluster_name<-names(sites)
+  sites<-unlist(sites,recursive=FALSE)
+  min_year<-lapply(sites, function(x) min(x$year))
+  min_year<-max(unlist(min_year))
+  max_year<-lapply(sites, function(x) max(x$year))
+  max_year<-min(unlist(max_year))
+  print(min_year)
+  print(max_year)
+  mean_ncor<-lapply(sites, function(x) mean(x$ncores))
+  mean_ncor<-mean(unlist(mean_ncor))
+  print(mean_ncor)
+  minmax<-list(c(min_year, max_year, mean_ncor))
+  dfs<-lapply(sites, function(x) cbind(x$paleoData_values, replicate(length(x$year), x$paleoData_proxy), x$year, replicate(length(x$year), x$dataSetName)))
+  dfs<-lapply(dfs, function(x) as.data.frame(x))
+  colnames<-c("trw","proxy", "year", "name")
+  dfs<-lapply(dfs, setNames, nm = colnames)
+  dfs <- lapply(dfs, function(x) {x$year <- as.numeric(x$year);x})
+  dfs<-lapply(dfs, function(x) filter(x, year <= max_year))
+  dfs<-lapply(dfs, function(x) filter(x, year >= min_year))
+  names(dfs) <-lapply(sites, function(x) x$dataSetName)
+  dfs<-list(dfs)
+  names(dfs)<-cluster_name 
+  format_list<-c(format_list, dfs)
+  minmaxyears<-c(minmaxyears, minmax)
+}
+
+
+
+mean_curves<-list()
+curveplots<-list()
+
+
+for(j in 1:length(format_list)){
+  df<-format_list[j]
+  cluster_name<-names(df)
+  #print(cluster_name)
+  df<-unlist(df,recursive=FALSE)
+  pages_df<-bind_rows(df)
+  pages_df$vals<-as.numeric(pages_df$trw)
+  pages_df$year<-as.numeric(pages_df$year)
+  pages_sum<-pages_df%>%
+    group_by(year)%>%
+    summarise(mean_trw = mean(vals, na.rm = T),
+              n_sites = n())
+  pages_sum<-as.data.frame(pages_sum)
+  pages_sum$n_sites<-as.numeric(pages_sum$n_sites)
+  mean_curve_spec<-as.data.frame(cbind(pages_sum$mean_trw, pages_sum$year))
+  colnames(mean_curve_spec)<-c("trw","year")
+  mean_curve_spec<-ts(mean_curve_spec$trw, deltat = 1)
+  mean_curve_spec<-SpecMTM(mean_curve_spec)
+  smooth<-FilterSpec(mean_curve_spec, spans=c(3,5))
+  smooth<-FilterSpecLog(smooth, df = 0.1)
+  mean_curve<-as.data.frame(cbind(smooth$freq, smooth$spec, smooth$dof))
+  colnames(mean_curve)<-c("freq","spectrum_of_stack","dofs_of_stack")
+  mean_curve_final<-mean_curve %>%
+    gather("type", "val", 2:3)
+  colnames(mean_curve_final)<-c("freq",'type',"val")
+  mod = lm(log(spectrum_of_stack)~log(freq), data = mean_curve)
+  Slope = summary(mod)$coefficients[2]
+  mean_curve_final<-list(mean_curve_final)
+  names(mean_curve_final)<-cluster_name
+  mean_curves<-c(mean_curves, mean_curve_final)
+}
+
+##################
+theme1<-theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.background = element_rect(fill=alpha('white', 0)),
+              legend.key.height = unit(0, 'lines'),
+              legend.spacing.y = unit(0, 'cm'),
+              text = element_text(size = 10),
+              legend.position = c(0.7,0.2),
+              legend.title = element_blank(),
+              legend.direction="vertical",
+              axis.text = element_text(color = "black"))
+
+plot_names<-names(clusters)
+
+plot_list<-list()
+curves_list<-list()
+length_vec<-lapply(all_clusters, function(x) length(x))
+
+axis_scaling<-c(10,10,50,50,10)
+
+for(i in 1:length(mean_curves)) {
+  cluster_name<-plot_names[[i]]
+  length_clust<-paste("n =", as.character(length_vec)[[i]])
+  mean_of_stack<-mean_curves[[i]]
+  noiseandsignal<-spec_long_list[[i]]
+  noiseandsignal<-noiseandsignal[,c("freq","val","type")]
+  mean_of_stack<-mean_of_stack[,c("freq",'val',"type")]
+  spec_df<-df_list[[i]]
+  all_curves<-rbind(mean_of_stack, noiseandsignal)
+  all_curves$freq<-round(all_curves$freq, digits = 10)
+  curves_wide<-all_curves%>%
+    group_by(freq)%>%
+    spread(type, val)
+  #filter(!is.na(mean_of_all_spectra))
+  #filter(freq > 0.01)
+  #curves_wide$`as.factor(freq)`<-NULL
+  all_curves$freq<-as.numeric(as.character(all_curves$freq))
+  all_curves<-all_curves%>%
+    filter(type != "n")
+  ############################################noise and signal spectra 
+  curves_wide$noise<-(curves_wide$mean_of_all_spectra - curves_wide$spectrum_of_stack)/(1-1/curves_wide$n.spec)
+  curves_wide$signal<-curves_wide$mean_of_all_spectra - curves_wide$noise
+  #######smooth estimates
+  signal<-list(curves_wide$freq, curves_wide$signal)
+  names(signal)<-c("freq","spec")
+  class(signal)<-'spectrum'
+  signal<-FilterSpec(signal, spans = c(3,5))
+  signal<-FilterSpecLog(signal, df = 0.1)
+  curves_wide$signal<-signal$spec
+  ##smooth estimates
+  noise<-list(curves_wide$freq, curves_wide$noise)
+  names(noise)<-c("freq","spec")
+  class(noise)<-'spectrum'
+  noise<-FilterSpec(noise, spans = c(3,5))
+  noise<-FilterSpecLog(noise, df = 0.1)
+  curves_wide$noise<-noise$spec
+  ##################################################ratio calculation
+  curves_wide$ratio<-curves_wide$signal/curves_wide$noise
+  ##########################################
+  p1<-ggplot()+
+    geom_line(data = spec_df, aes(x=freq, y=spec, group = name, color = "detrending_type", linetype = "detrending_type"), size = 0.4)+
+    geom_line(data = curves_wide, aes(x=freq, y=mean_of_all_spectra, color = "mean_of_all_spectra", linetype = "mean_of_all_spectra"), size = 1)+
+    geom_line(data = curves_wide, aes(x=freq, y=signal, color = "signal", linetype = "signal"), size = 1)+
+    geom_line(data = curves_wide, aes(x=freq, y=noise, color = "noise", linetype = "noise"), size = 1)+
+    geom_line(data = curves_wide, aes(x = freq, y=spectrum_of_stack, color="spectrum_of_stack",linetype = "spectrum_of_stack"), size = 1)+
+    #geom_line(data = curves_wide, aes(x = freq, y=sig_mod))+
+    scale_x_continuous(trans = c('log10'), limits = c(0.001,0.5),
+                       breaks = c(0.001,0.005,0.01, 0.033, 0.1, 0.5),
+                       labels = c("1000","200","100","30","10","5"))+
+    scale_y_continuous(trans=c('log10'), limits = c(0.0001, 50),
+                       breaks = c( 0.001, 0.01, 0.1, 1),
+                       labels = c("0.001","0.01","0.1","1")) +
+    scale_color_manual(name = " ", breaks = c("detrending_type",  "mean_of_all_spectra", "signal", "noise", "spectrum_of_stack"),
+                       labels = c("Individual series", "Mean of all spectra","Signal","Noise", "Spectrum of stack"),
+                       values = c("#666666","#666666","#e41a1c", "#a6761d","blue"))+
+    scale_linetype_manual(name = " ", breaks = c("detrending_type",  "mean_of_all_spectra", "signal", "noise", "spectrum_of_stack"),
+                          labels = c("Individual series", "Mean of all spectra","Signal","Noise","Spectrum of stack"),
+                          values = c("dotted","solid","solid", "solid","solid"))+
+    theme_bw()+
+    annotate("text", x = 0.01, y = 0.1, label = length_clust)+
+    theme1+
+    theme(panel.border=element_blank(), axis.line=element_line())+
+    coord_capped_cart(bottom="both", left="both", right = "both")+
+    guides(fill = guide_legend(byrow = TRUE))+
+    ylab(expression("Signal-to-noise ratio"))+
+    xlab(expression(Delta~"t"~"(year)"))+
+    ggtitle(cluster_name)
+  curves_wide$name<-cluster_name
+  curves_wide<-as.data.frame(curves_wide)
+  curves_wide<-list(curves_wide)
+  names(curves_wide)<-cluster_name
+  plot_list[[i]]<- p1
+  curves_list<-c(curves_list, curves_wide)
+}
+
+#######add a step here to add the mean SNR in some bands to the minmaxyears df
+
+approx_list<-list()
+
+for(i in 1:length(curves_list)){
+  raw<-curves_list[[i]]
+  name<-names(curves_list[i])
+  raw<-list(raw$freq, raw$mean_of_all_spectra, raw$dofs_of_stack)
+  names(raw)<-c("freq","spec","dof")
+  class(raw)<-'spectrum'
+  raw<-SpecApprox(raw)
+  raw<-AddConfInterval(raw)
+  spec<-curves_list[[i]]
+  name<-names(curves_list[i])
+  snr<-list(spec$freq, spec$ratio)
+  names(snr)<-c("freq","spec")
+  class(snr)<-'spectrum'
+  snr<-SpecApprox(snr)
+  signal<-list(spec$freq, spec$signal)
+  names(signal)<-c("freq","spec")
+  class(signal)<-'spectrum'
+  #signal<-LogSmooth(signal, df.log = 0.1, removeFirst = 0, removeLast = 0)
+  signal<-SpecApprox(signal)
+  noise<-list(spec$freq, spec$noise)
+  names(noise)<-c("freq","spec")
+  class(noise)<-'spectrum'
+  #noise<-LogSmooth(noise, df.log = 0.1, removeFirst = 0, removeLast = 0)
+  noise<-SpecApprox(noise)
+  df<-as.data.frame(cbind(snr$freq, snr$spec, signal$spec, noise$spec, raw$spec, raw$lim.1, raw$lim.2))
+  df$name<-name
+  colnames(df)<-c("freq","snr","signal","noise","raw","raw_upperCI","raw_lowerCI", "name")
+  df<-list(df)
+  names(df)<-names(curves_list)[[i]]
+  approx_list<-c(approx_list, df)
+}
+
+
+signal_curves <- do.call(rbind, approx_list)
+
+signal_betas <- signal_curves %>%
+  group_by(name)%>%
+  do(mod = lm(log(signal)~log(freq), data = .))%>%
+  mutate(signalBeta = summary(mod)$coefficients[2],
+         signalAlpha = summary(mod)$coefficients[1]) %>%
+  dplyr::select(-mod)
+
+noise_betas <- signal_curves %>%
+  group_by(name)%>%
+  do(mod = lm(log(noise)~log(freq), data = .))%>%
+  mutate(Slope = summary(mod)$coefficients[2],
+         Alpha = summary(mod)$coefficients[1]) %>%
+  dplyr::select(-mod)
+
+signal_betas$noiseBeta<-noise_betas$Slope
+signal_betas$noiseAlpha<-noise_betas$Alpha
+
+signal_mean<-signal_curves %>%
+  group_by(freq)%>%
+  filter(!is.na(signal))%>%
+  filter(!is.na(snr))%>%
+  filter(!is.na(noise))%>%
+  summarise(mean_raw_curve  = mean(raw),
+            rawUpperCI = mean(raw_upperCI),
+            rawLowerCI = mean(raw_lowerCI),
+            mean_signal_curve = mean(signal),
+            mean_ratio_curve = mean(snr), 
+            mean_noise_curve = mean(noise),
+            n_spec = n())
+
+signal_curves$bins[signal_curves$freq >= 0.1 & signal_curves$freq <= 0.5]<-"twototen"
+signal_curves$bins[signal_curves$freq >= 0.02 & signal_curves$freq < 0.1]<-"tentofifty"
+signal_curves$bins[signal_curves$freq >= 0.01 & signal_curves$freq < 0.02]<-"fiftytoonehundred"
+signal_curves$bins[signal_curves$freq < 0.01]<-"centennial+"
+
+
+signal_bins<-signal_curves%>%
+  group_by(bins, name)%>%
+  filter(!is.na(snr))%>%
+  summarise(mean = mean(snr))%>%
+  spread(bins, mean)
+
+
+signal_bins$flavor<-flavor
+
+signal_mean$flavor<-flavor
+n<-signal_mean$n_spec
+freq<-signal_mean$freq
+signal_raw<-signal_mean[,2:4]
+signal_mean<-signal_mean[,5:7]
+
+nrow<-nrow(signal_mean)
+
+signal_smoothed<-data.frame(matrix(nrow=nrow, ncol = 0))
+
+for(i in 1:ncol(signal_mean)){
+  names<-colnames(signal_mean)[[i]]
+  vec<-signal_mean[[i]]
+  vec<-list(freq, vec)
+  names(vec)<-c("freq","spec")
+  class(vec)<-"spectrum"
+  vec<-FilterSpec(vec, spans = c(3,5))
+  vec<-FilterSpecLog(vec, df = 0.01)
+  vec<-vec$spec
+  vec<-list(vec)
+  names(vec)<-names
+  signal_smoothed<-cbind(signal_smoothed, vec)
+}
+
+signal_mean<-as.data.frame(cbind(freq, signal_raw, signal_smoothed, n, flavor))
+
+p1<-ggplot(signal_mean, aes(x=freq, y=mean_raw_curve, color = "raw"))+
+  geom_line()+
+  geom_ribbon(data = signal_mean, aes(x = freq, ymin = rawLowerCI, ymax = rawUpperCI, color = "raw", fill = "raw"), alpha = 0.5, size = 1)+
+  geom_line(data = signal_mean, aes(x = freq, y= mean_signal_curve, color = "signal")) +
+  geom_line(data = signal_mean, aes(x = freq, y= mean_noise_curve, color = "noise")) +
+  geom_line(data = signal_mean, aes(x = freq, y= mean_ratio_curve, color = "ratio")) +
+  geom_area(data = signal_mean, aes(x = freq, y= n, color = "n" , fill = "n")) +
+  scale_color_manual(breaks = c("raw", "signal","noise","ratio","n"), values = c("green","blue","red","purple","pink"))+
+  scale_fill_manual(breaks = c("raw", "signal","noise","ratio","n"), values = c("green","blue","red","purple","pink"))+
+  ggtitle(flavor)+
+  scale_x_continuous(trans = c('log10'))+
+  scale_y_continuous(trans = c('log10'))+
+  theme_bw()
+p1
+
+
+minmaxyears<-as.data.frame(minmaxyears)
+minmaxyears<-t(minmaxyears)
+rownames(minmaxyears)<-NULL
+
+colnames(minmaxyears)<-c("start","end", "mean_ncores")
+minmaxyears<-as.data.frame(minmaxyears)
+minmaxyears$name<-unlist(plot_names)
+
+minmaxyears<-full_join(minmaxyears, signal_bins, by = "name")
+minmaxyears$length<-minmaxyears$end-minmaxyears$start
+minmaxyears$density<-minmaxyears$mean_ncores/minmaxyears$length
+
+write.csv(signal_mean, file = c(paste0(flavor,"_curves.csv")))
+write.csv(minmaxyears, file = c(paste0(flavor,"_minmax.csv")))
+write.csv(signal_betas, file = c(paste0(flavor, "_params.csv")))
+
+
+######
+minmax<-minmaxyears
+minmax$flavor<-flavor
+
+
+minmax<-minmax%>%
+  group_by(name, flavor)%>%
+  gather(bin, snr, 5:8)
+
+
+minmax$bin <- factor(minmax$bin, levels = c( "twototen", "tentofifty","fiftytoonehundred","centennial." ))
+
+
+minmax_stats<-minmax%>%
+  group_by(flavor, bin)%>%
+  do(snr_lm = summary(lm(snr ~ mean_ncores, data = .)))
+
+plot_names <- list(
+  'twototen'="2-10",
+  'tentofifty'="11-50",
+  'fiftytoonehunred'="50-100",
+  'centennial.'="100+"
+)
+
+labeller <- function(variable,value){
+  return(plot_names[value])
+}
+
+
+p2<-ggplot(minmax, aes(x=mean_ncores, y=snr, color = flavor))+
+  geom_point()+
+  geom_smooth(method = "lm", aes(fill = flavor))+
+  facet_grid(.~bin, labeller = labeller)+
+  theme_bw()+
+  theme(panel.border=element_blank(), axis.line=element_line())+
+  scale_x_continuous(limits = c(5,50), breaks = c(10,20,30,40), labels = c("10","20","30","40"))+
+  scale_y_continuous(limits = c(-0.2,4.5), breaks = c(0,1,2,3,4), labels = c("0","1","2","3","4"))+
+  coord_capped_cart(bottom="both", left="both", right = "both", top = "both")+
+  theme(panel.grid.major = element_blank(),
+        #panel.grid.minor = element_blank(),
+        legend.background = element_rect(fill=alpha('white', 0)),
+        #legend.key.height = unit(0, 'lines'),
+        #legend.spacing.y = unit(0, 'cm'),
+        text = element_text(size = 14),
+        strip.text = element_text(size = 14),
+        legend.position = c(0.9,0.8),
+        legend.title = element_blank(),
+        strip.background = element_blank(),
+        #legend.direction="vertical",
+        axis.text = element_text(color = "black"))+
+  xlab("Number of cores per chronology")+
+  ylab("SNR")
+
+p2
+
