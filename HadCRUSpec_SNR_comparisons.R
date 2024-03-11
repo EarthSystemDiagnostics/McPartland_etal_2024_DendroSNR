@@ -190,6 +190,7 @@ hadcru<-hadcru[!names(hadcru) %in% diff]
 
 #filter raw values from hadcru raw data to remove any non-contiguous regions
 #this looses it's association with year, but then the series are converted to spectra so it's not really an issue
+
 hadcru_filter<-list()
 
 for(i in hadcru) {
@@ -197,20 +198,22 @@ for(i in hadcru) {
   hadcru_filter[[length(hadcru_filter)+1]]<-unlist(filt)
 }
 
-hadcru_filter<-unique(hadcru_filter)
+names<-names(hadcru)
+hadcru_names<-paste0(names, "-hadcru")
 
-numbers<-seq_along(1:length(hadcru_filter))
-hadcru_names<-paste0(numbers, "-hadcru")
 names(hadcru_filter)<-hadcru_names
 
-#remove duplicate series, to avoid artificially increase the degrees of freedom
+#bind all dataframes together
+clim<-c(hadcru_filter)
+
+clim<-clim[!duplicated(clim)]
 
 #perform the spectral analysis of model and instrumental data
 clim_specs<-list()
 
-for(i in 1:length(hadcru_filter)) {
-  tmp<-hadcru_filter[[i]]
-  name <- names(hadcru_filter[i])
+for(i in 1:length(clim)) {
+  tmp<-clim[[i]]
+  name <- names(clim[i])
   print(name)
   tmp_ts<-ts(tmp, deltat = 1)
   spectrum <- SpecMTM(tmp_ts)
@@ -238,7 +241,7 @@ clim_df$freq<-as.numeric(as.character(clim_df$freq))
 clim_df$spec<-as.numeric(as.character(clim_df$spec))
 clim_df$dofs<-as.numeric(as.character(clim_df$dofs))
 
-
+#visualze all specs
 test_plot<-ggplot(clim_df, aes(x=freq, y = spec, group = sitename, color = data_type))+
   geom_line()+
   scale_x_continuous(trans = c('log10'))+
@@ -247,12 +250,11 @@ test_plot<-ggplot(clim_df, aes(x=freq, y = spec, group = sitename, color = data_
 test_plot
 
 ############### 
-
+#take mean and add DOF of 1
 clim_sums <- clim_df %>%
   group_by(data_type, freq) %>%
   summarise(spec = mean(spec, na.rm = T),
-            #dofs = 8)%>%
-  dofs = sum(dofs)/8)%>%
+            dofs = 1)%>%
   filter(spec != "NaN")
 
 
@@ -263,13 +265,13 @@ theme1<-theme(#legend.key = element_blank(),
   strip.background.x = element_blank(),
   strip.text.y = element_text(size = 20))
 
-# #####normalize to a consistent starting value using the highest frequency bands of 8+ years
+######filter less than 100 yr timescales
 
 hadcru<-clim_sums%>%
-  filter(data_type == "hadcru" & freq > 0.01)%>%
+  filter(data_type == "hadcru" & freq >= 0.01)%>%
   filter(spec != "NaN")
 
-
+#smooth spectra
 spec_list<-list(hadcru)
 
 for(i in 1:length(spec_list)){
@@ -277,7 +279,8 @@ for(i in 1:length(spec_list)){
   ser<-list(df$spec, df$freq, df$dofs)
   names(ser)<-c("spec","freq","dof")
   class(ser)<-"spectrum"
-  smooth<-LogSmooth(ser, df.log = 0.05)
+  smooth<-FilterSpec(ser, spans = c(3,5))
+  smooth<-FilterSpecLog(smooth, df = 0.5)
   df$spec<-smooth$spec
   df$upper<-smooth$lim.1
   df$lower<-smooth$lim.2
@@ -286,51 +289,88 @@ for(i in 1:length(spec_list)){
 
 specs_smoothed<-do.call(rbind, spec_list)
 
+#filter out low-frequencies from SNR data
 snrs<-snrs%>%
-  filter(proxy == "MXD" | freq > 0.01)%>%
-  filter(proxy == "TRW" | freq > 0.01)
+  filter(proxy == "MXD" | freq >= 0.01)%>%
+  filter(proxy == "TRW" | freq >= 0.01)
 
 snrs<-snrs%>%
   filter(!is.na(mean_signal_curve))
 
+##additional smoothing on mean signal and raw spectra for MXD and TRW
 mxd<-snrs%>%
   filter(proxy == "MXD")
-
 mxd<-list(mxd$freq, mxd$mean_signal_curve)
 names(mxd)<-c("freq","spec")
 mxd$dofs<-rep(5, length(mxd$freq))
 class(mxd)<-"spectrum"
-mxd<-LogSmooth(mxd, df.log = 0.05)
+mxd<-FilterSpec(mxd, spans = c(3,5))
+mxd<-FilterSpecLog(mxd, df = 0.5)
 snrs$mean_signal_curve[snrs$proxy == "MXD"]<-mxd$spec
 
+mxd<-snrs%>%
+  filter(proxy == "MXD")
+mxd<-list(mxd$freq, mxd$mean_raw_curve)
+names(mxd)<-c("freq","spec")
+mxd$dofs<-rep(5, length(mxd$freq))
+class(mxd)<-"spectrum"
+mxd<-FilterSpec(mxd, spans = c(3,5))
+mxd<-FilterSpecLog(mxd, df = 0.5)
+snrs$mean_raw_curve[snrs$proxy == "MXD"]<-mxd$spec
 
 trw<-snrs%>%
   filter(proxy == "TRW")
-
 trw<-list(trw$freq, trw$mean_signal_curve)
 names(trw)<-c("freq","spec")
 trw$dofs<-rep(5, length(trw$freq))
 class(trw)<-"spectrum"
-trw<-LogSmooth(trw, df.log = 0.05)
+trw<-FilterSpec(trw, spans = c(3,5))
+trw<-FilterSpecLog(trw, df = 0.5)
 trw$mean_signal_curve[snrs$proxy == "TRW"]<-trw$spec
 
+trw<-snrs%>%
+  filter(proxy == "TRW")
+trw<-list(trw$freq, trw$mean_raw_curve)
+names(trw)<-c("freq","spec")
+trw$dofs<-rep(5, length(trw$freq))
+class(trw)<-"spectrum"
+trw<-FilterSpec(trw, spans = c(3,5))
+trw<-FilterSpecLog(trw, df = 0.5)
+trw$mean_raw_curve[snrs$proxy == "TRW"]<-trw$spec
 
+
+#add confidence intervals from bootstrap to real estimates through multiplication 
 snrs$signal_0.9<-snrs$mean_signal_curve*snrs$signal_0.9
 snrs$signal_0.1<-snrs$mean_signal_curve*snrs$signal_0.1
 
-snrs<-snrs%>%
-  filter(proxy == "MXD" | freq > 0.01)%>%
-  filter(proxy == "TRW" | freq > 0.01)
+#selected series for rescaling and plotting 
+snrs<-snrs %>%
+  dplyr::select(freq, mean_signal_curve, signal_0.1, signal_0.9, proxy)
 
-snrs<-cbind.data.frame(snrs$freq, snrs$mean_signal_curve, snrs$signal_0.1, snrs$signal_0.9, snrs$proxy)
+#combine hadcrut data
 specs_smoothed<-cbind.data.frame(specs_smoothed$freq, specs_smoothed$spec, specs_smoothed$lower, specs_smoothed$upper, specs_smoothed$data_type)
 
+#filter out raw series and interannual timescales
+snrs_raw<-snrs
+snrs_raw<-snrs_raw%>%
+  filter(proxy == "TRW" | freq >= 0.0125)
 
+snrs_raw<-snrs_raw%>%
+  dplyr::select(freq, mean_raw_curve, rawLowerCI, rawUpperCI, proxy)
+
+snrs_raw$proxy[snrs_raw$proxy == "MXD"]<-"MXD_raw"
+snrs_raw$proxy[snrs_raw$proxy == "TRW"]<-"TRW_raw"
+
+colnames(snrs_raw)<-c("freq","spec","lower","upper","data_type")
 colnames(snrs)<-c("freq","spec","lower","upper","data_type")
 colnames(specs_smoothed)<-c("freq","spec","lower","upper","data_type")
 
-all_specs<-rbind(snrs, specs_smoothed)
+#combine all datatypes 
+all_specs<-rbind(snrs, specs_smoothed, snrs_raw)
+all_specs$lower[all_specs$data_type == "TRW_raw" | all_specs$data_type == "MXD_raw"]<-NA
+all_specs$upper[all_specs$data_type == "TRW_raw" | all_specs$data_type == "MXD_raw"]<-NA
 
+#mean across all spectral estimates (0-8 years)
 mean_all<-mean(all_specs$spec[all_specs$freq <= 0.125 & all_specs$freq >= 0.01])
 
 spec_high<-all_specs %>%
@@ -339,7 +379,7 @@ spec_high<-all_specs %>%
   summarise(mean_high = mean(spec),
             scaled = 1/(mean_all/mean_high))
 
-
+#normalise all indiviudal estimates by the global mean
 all_specs$spec[all_specs$data_type == "TRW"]<-all_specs$spec[all_specs$data_type == "TRW"]/spec_high$scaled[spec_high$data_type == "TRW"]
 all_specs$spec[all_specs$data_type == "MXD"]<-all_specs$spec[all_specs$data_type == "MXD"]/spec_high$scaled[spec_high$data_type == "MXD"]
 all_specs$spec[all_specs$data_type == "hadcru"]<-all_specs$spec[all_specs$data_type == "hadcru"]/spec_high$scaled[spec_high$data_type == "hadcru"]
@@ -354,39 +394,50 @@ all_specs$lower[all_specs$data_type == "TRW"]<-all_specs$lower[all_specs$data_ty
 all_specs$lower[all_specs$data_type == "MXD"]<-all_specs$lower[all_specs$data_type == "MXD"]/spec_high$scaled[spec_high$data_type == "MXD"]
 all_specs$lower[all_specs$data_type == "hadcru"]<-all_specs$lower[all_specs$data_type == "hadcru"]/spec_high$scaled[spec_high$data_type == "hadcru"]
 
+all_specs$spec[all_specs$data_type == "TRW_raw"]<-all_specs$spec[all_specs$data_type == "TRW_raw"]/spec_high$scaled[spec_high$data_type == "TRW_raw"]
+all_specs$spec[all_specs$data_type == "MXD_raw"]<-all_specs$spec[all_specs$data_type == "MXD_raw"]/spec_high$scaled[spec_high$data_type == "MXD_raw"]
+
 
 p2<-ggplot()+
   theme_bw()+
-  geom_line(data = all_specs, aes(x=freq, y=spec, group = data_type, color = data_type), size = 1)+
+  geom_line(data = all_specs, aes(x=freq, y=spec, group = data_type, color = data_type, linetype = data_type), size = 1.5)+
+  #geom_line(data = snrs_raw, aes(x=freq, y = mean_raw_curve, color = proxy))+
   geom_ribbon(data = all_specs, aes(x = freq, ymin = lower , ymax = upper, group = data_type, fill = data_type), alpha = 0.5, size = 1)+
+  #geom_ribbon(data = snrs_raw, aes(x = freq, ymin = mean_raw_curve - rawLowerCI , ymax = mean_raw_curve+rawUpperCI, group = proxy, fill = proxy), alpha = 0.5, size = 1)+
   theme(panel.border=element_blank(), axis.line=element_line())+
   ylab("PSD")+
   xlab("Timescale")+
-  scale_fill_manual(name = "Data Type", breaks = c("TRW","MXD","hadcru"),
-                    labels = c("Tree-ring width","Tree-ring density", "HadCRU Summer\nTemp Anomalies"),
-                    values = c("#66c2a5", "#8da0cb", "#e78ac3"))+
-  scale_color_manual(name = "Data Type", breaks = c("TRW","MXD","hadcru"),
-                     labels = c("Tree-ring width","Tree-ring density", "HadCRU Summer\nTemp Anomalies"),
-                     values = c("#66c2a5", "#8da0cb", "#e78ac3"))+
-  scale_x_continuous(trans = c('log10'), limits = c(0.01,0.47),
-                     breaks = c(0.01,0.033, 0.1, 0.47),
+  scale_fill_manual(name = "Data Type", breaks = c("TRW","TRW_raw","MXD","MXD_raw","hadcru"),
+                    labels = c("Tree-ring width\n(corrected)","Tree-ring width (raw)","Tree-ring density\n(corrected)","Tree-ring density (raw)", "HadCRUT Summer\nTemp Anomalies"),
+                    values = c("#008837",NA, "#7b3294",NA, "darkgrey"), na.value = NA)+
+  scale_color_manual(name = "Data Type", breaks = c("TRW","TRW_raw","MXD","MXD_raw","hadcru"),
+                     labels = c("Tree-ring width\n(corrected)","Tree-ring width (raw)","Tree-ring density\n(corrected)","Tree-ring density (raw)", "HadCRUT Summer\nTemp Anomalies"),
+                     values = c("#008837","#a6dba0", "#7b3294","#c2a5cf", "darkgrey"), na.value = NA)+
+  scale_linetype_manual(name = "Data Type", breaks = c("TRW","TRW_raw","MXD","MXD_raw","hadcru"),
+                        labels = c("Tree-ring width\n(corrected)","Tree-ring width (raw)","Tree-ring density\n(corrected)","Tree-ring density (raw)", "HadCRUT Summer\nTemp Anomalies"),
+                        values = c("solid","dashed", "solid","dashed", "solid"))+
+  scale_x_continuous(trans = c('log10'), limits = c(0.01,0.50),
+                     breaks = c(0.01,0.033, 0.1, 0.50),
                      labels = c('100',"30","10","2"), 
-                     sec.axis = sec_axis((~.), name = "Frequency (years)", 
-                                         breaks = c(0.01,0.033, 0.1, 0.47), 
+                     sec.axis = sec_axis((~.), name = "Frequency (1/years)", 
+                                         breaks = c(0.01,0.033, 0.1, 0.5), 
                                          labels = c("0.01","0.03","0.1","0.5")))+
-  scale_y_continuous(trans=c('log10'), limits = c(0.05,2))+
+  scale_y_continuous(trans=c('log10'), limits = c(0.03,2.8))+
   coord_capped_cart(bottom="both", left="both", top = "both")+
+  ggtitle("(a)")+
   theme(panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         text = element_text(size = 12),
-        legend.position = c(0.75,0.75),
-        legend.direction="vertical",
+        legend.position = c(0.01,0.17),
+        legend.justification = c(0),
+        legend.title = element_blank(),
+        legend.text.align = 0,
+        legend.direction="horizontal",
         axis.text = element_text(color = "black"),
-        plot.title = element_text(hjust = 0.5),
+        plot.title = element_text(hjust = 0),
         strip.text.x = element_text(size = 12),
         strip.background.x = element_blank(),
-        strip.text.y = element_text(size = 12))
+        strip.text.y = element_text(size = 12))+
+  guides(fill=guide_legend(nrow=3,byrow=TRUE), label.position = "right")
 p2
-
-
 
