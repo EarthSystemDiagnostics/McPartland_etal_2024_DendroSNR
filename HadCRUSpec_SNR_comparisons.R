@@ -441,3 +441,101 @@ p2<-ggplot()+
   guides(fill=guide_legend(nrow=3,byrow=TRUE), label.position = "right")
 p2
 
+######PACF estimation, done on raw (unsmoothed) SNR estimates
+#load in the SNR estimates again
+snrs<-read.csv("bootstrapped_curves.csv")
+
+#filter to high frequencies
+snrs<-snrs%>%
+  filter(freq > 0.01)
+
+#assign each curve to spectrum
+trw_spec_raw<-list(snrs$freq[snrs$proxy == "TRW"], snrs$mean_raw_curve[snrs$proxy == "TRW"])
+names(trw_spec_raw)<-c("freq","spec")
+class(trw_spec_raw)<-"spectrum"
+trw_spec_raw<-list(trw_spec_raw)
+
+mxd_spec_raw<-list(snrs$freq[snrs$proxy == "MXD"], snrs$mean_raw_curve[snrs$proxy == "MXD"])
+names(mxd_spec_raw)<-c("freq","spec")
+class(mxd_spec_raw)<-"spectrum"
+mxd_spec_raw<-list(mxd_spec_raw)
+
+trw_spec_correct<-list(snrs$freq[snrs$proxy == "TRW"], snrs$mean_signal_curve[snrs$proxy == "TRW"])
+names(trw_spec_correct)<-c("freq","spec")
+class(trw_spec_correct)<-"spectrum"
+trw_spec_correct<-list(trw_spec_correct)
+
+mxd_spec_correct<-list(snrs$freq[snrs$proxy == "MXD"], snrs$mean_signal_curve[snrs$proxy == "MXD"])
+names(mxd_spec_correct)<-c("freq","spec")
+class(mxd_spec_correct)<-"spectrum"
+mxd_spec_correct<-list(mxd_spec_correct)
+
+hadcru_spec<-list(hadcru$freq, hadcru$spec)
+names(hadcru_spec)<-c("freq","spec")
+class(hadcru_spec)<-"spectrum"
+hadcru_spec<-list(hadcru_spec)
+
+#list all specs
+specs_list<-c(trw_spec_raw, trw_spec_correct, mxd_spec_raw, mxd_spec_correct, hadcru_spec)
+names(specs_list)<-c("trw_spec_raw", "trw_spec_correct", "mxd_spec_raw", "mxd_spec_correct", "hadcru_spec")
+
+#simulate 100 timeseries from each spectra
+acfs<-list()
+
+for(i in 1:length(specs_list)){
+  spec<-specs_list[[i]]
+  acf_df<-setNames(data.frame(matrix(ncol = 11, nrow = 0)), c("lag1","lag2","lag3","lag4","lag5","lag6","lag7","lag8","lag9","lag10"))
+  name<-names(specs_list)[[i]]
+  for(x in 1:100){
+    tsl1<-ts(SimFromEmpiricalSpec(spec, 80))
+    acf<-pacf(tsl1)
+    acf<-acf$acf[1:10]
+    acf_df<-rbind(acf_df, acf)
+  }
+  acf_df$data_type<-name
+  colnames(acf_df)<-c("lag1","lag2","lag3","lag4","lag5","lag6","lag7","lag8","lag9","lag10","data_type")
+  acf_list<-list(acf_df)
+  acfs<-c(acfs, acf_list)
+}
+
+
+#bind all together
+acfs_all<-do.call(rbind, acfs)
+
+acfs_all<-as.data.frame(acfs_all)
+colnames(acfs_all)<-c("lag1","lag2","lag3","lag4","lag5","lag6","lag7","lag8","lag9","lag10","data_type")
+
+#collect all into longform dataset
+acfs_all<-acfs_all%>%
+  group_by(data_type)%>%
+  gather("lag","acf", 1:10)
+
+#remove long lags
+acfs_all<-acfs_all%>%
+  filter(&  lag != "lag5" & lag != "lag6" & lag != "lag7" & lag != "lag8" & lag != "lag9" & lag != "lag10")
+
+#acf_df$lag<-as.numeric(acf_df$lag)
+
+acfs_all$data_type <- factor(acfs_all$data_type,
+                       levels = c('trw_spec_raw','trw_spec_correct','mxd_spec_raw','mxd_spec_correct',"hadcru_spec"),ordered = TRUE)
+
+pacf_plot<-ggplot(acfs_all, aes(x = lag, y = acf,fill = data_type))+
+  geom_boxplot(outlier.shape = NA, fatten = NULL)+
+  scale_fill_manual(name = "Data Type", breaks = c("trw_spec_raw","trw_spec_correct","mxd_spec_raw","mxd_spec_correct", "hadcru_spec"),
+                    labels = c("TRW (raw)","TRW (corrected)","MXD (raw)","MXD (corrected)", "HadCRUT Summer\nTemp Anomalies"),
+                    values = c("#a6dba0","#008837" ,"#c2a5cf","#7b3294", "grey"))+
+  scale_x_discrete(breaks = c("lag1","lag2","lag3","lag4"), labels = c("1","2","3","4"))+
+  xlab("Lag (years)")+
+  theme_bw()+
+  theme(panel.border=element_blank(), axis.line=element_line())+
+  coord_capped_cart(bottom="both", left="both", right = "both", top = "both")+
+  ylab("PACF")+
+  ggtitle("(c)")+
+  geom_hline(yintercept = 0, linetype = "longdash")+
+  theme(panel.grid.major = element_blank(),
+    plot.title = element_text(hjust = 0.0),
+    panel.grid.minor = element_blank())+
+    #legend.position = "none")+
+  guides(fill = guide_legend(override.aes = list(linetype = 0)),
+       color = guide_legend(override.aes = list(linetype = 0)))
+pacf_plot
