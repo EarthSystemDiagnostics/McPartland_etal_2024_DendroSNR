@@ -46,22 +46,6 @@ rm(treeTS)
 #remove all fields which don't contain proxy information
 trw<-trw[-which(sapply(trw, function(x) (is.null(x$paleoData_proxy))))]
 
-
-#problem_crns <- c("cana319", "cana430" , "wy030" , "nm529" , "nm520", "nm512")
-#trw<-trw[sapply(trw, function(x) all(x$dataSetName != problem_crns))]
-
-#treeTs<-treeTs[sapply(treeTs, function(x) all(x$paleoData_detrendingMethod == "RCS"))]
-
-#max<-lapply(mxd, function(x) x$eps)
-#max<-lapply(max, max, na.rm = T)
-
-#sort for just tree ring with chronologies
-#mxd<-trw[sapply(trw, function(x) all(x$paleoData_proxy == "MXD"))]
-#trw<-trw[sapply(trw, function(x) all(x$paleoData_proxy == "TRW"))]
-
-#problem_crns <- c("cana319", "cana430" , "wy030" , "nm529" , "nm520")
-#trw<-trw[sapply(trw, function(x) all(x$dataSetName != problem_crns))]
-
 #option to truncate each chronology when EPS dips below 0.85 and reduce chronology size to the length of eps>0.85
 #also options to assign cutoffs for chronology length or number of cores
 #this version invokes a trivial option, nores >=1 (all years maintained)
