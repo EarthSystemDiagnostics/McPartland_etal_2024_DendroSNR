@@ -254,7 +254,7 @@ test_plot
 clim_sums <- clim_df %>%
   group_by(data_type, freq) %>%
   summarise(spec = mean(spec, na.rm = T),
-            dofs = 1)%>%
+            dofs = 10)%>%
   filter(spec != "NaN")
 
 
