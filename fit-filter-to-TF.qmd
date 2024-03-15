@@ -1,0 +1,246 @@
+---
+title: "Estimate filter from transfer function"
+format: pdf
+toc: true
+editor: source
+editor_options: 
+  chunk_output_type: console
+fig-format: "png"
+fig-dpi: 300
+knitr:
+  opts_chunk: 
+    dev.args:
+      type: cairo
+---
+
+
+```{r}
+library(PaleoSpec)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+
+```{r}
+# re-orders frequencies from "fft" order (zero, pos, neg) to just positive
+# freqs in ascending order and creates as "spec" object
+FFT2Spec <- function(fft){
+
+  n <- length(fft)
+  lag <- 0:(n-1)
+  freq = lag / n
+
+  spec <- abs(fft)^2
+
+  as.spec(list(freq = freq[freq <= 1/2], spec = spec[freq <= 1/2]))
+  }
+```
+
+
+# Apply to the real MXD and TRW spectra
+
+Aim is to estimate the filter responsible for the difference between the MXD and TRW climate spectra
+
+## MXD and TRW spectra from Mara
+
+```{r}
+dat <- read.csv("raw_and_corrected_specs.csv") %>% 
+  as_tibble()
+```
+
+```{r}
+pal_tree <- c("MXD" = "red", "MXD_raw" = "darkred", "TRW" = "blue", "TRW_raw" = "darkblue", "hadcru" = "darkgrey")
+pal_tree_TF <- c("TF_MXD_hadcru" = "red", "TF_MXDraw_hadcru" = "darkred", "TF_TRW_hadcru" = "blue", "TF_TRWraw_hadcru" = "darkblue", "hadcru" = "darkgrey")
+
+dat %>%
+  mutate(#spec = mean_signal_curve,
+         spec_id = data_type) %>% 
+  filter(freq >= 1/100) %>% 
+  #pivot_longer(cols = c(MXD, TRW, ratio),
+  #             names_to = "spec_id", values_to = "spec") %>% 
+  as_spec_df() %>% 
+  gg_spec()+
+  #lims(x = c(1/100, 1/2)) +
+  scale_colour_manual("", values = pal_tree)
+```
+
+```{r}
+dat_wide <- dat %>%
+  select(freq, spec, data_type) %>% 
+  pivot_wider(names_from = data_type, values_from = spec) %>% 
+  mutate(TF_TRWraw_hadcru = TRW_raw / hadcru,
+         TF_MXDraw_hadcru = MXD_raw / hadcru,
+         TF_TRW_hadcru = TRW / hadcru,
+         TF_MXD_hadcru = MXD / hadcru)
+
+range(dat_wide$freq)
+
+```
+
+
+### Turn the ratio (i.e. the transfer function) into a spec object and interpolate to standard frequency axis
+
+```{r}
+max_lag <- 50
+
+TF_spec_reg <- dat_wide %>% 
+  pivot_longer(cols = starts_with("TF_")) %>% 
+  group_by(name) %>% 
+  do({
+    d <- .
+    d$spec <- d$value
+    d <- DF2Spec(d)
+    d2 <- SpecInterpolate(d,
+                freqRef = seq(1/max_lag, max(d$freq), 1/max_lag),
+                check = FALSE
+                )
+    Spec2DF(d2)
+    
+  }) %>% 
+  mutate(spec_id = name) %>% 
+  as_spec_df()
+
+
+
+gg_spec(TF_spec_reg) +
+  scale_colour_manual(values = pal_tree_TF)
+```
+
+```{r}
+
+```
+
+
+```{r}
+#' Get transfer function for a given exponential or Gaussian filter
+#' Uses the Fourier transform of the filter 
+GetTF <- function(tau, l, type = c("exp", "norm")){
+  
+  type = match.arg(type)
+  
+  filt <- switch(type,
+         exp = dexp(0:(l-1), 1/tau),
+         norm = dnorm(0:(l-1), 0, tau)
+         )
+  
+  filt <- filt / sum(filt)
+  
+  filt_fft <- fft(filt)
+  filt_fft_spec <- FFT2Spec(filt_fft)
+  
+  # remove f == 0
+  filt_fft_spec %>% 
+    Spec2DF() %>% 
+    filter(freq > 0) %>% 
+    DF2Spec()
+}
+```
+
+## Transfer function with width 1 year
+
+A timescale of 1 year fits reasonably well, but what is the best fitting timescale?
+
+```{r}
+prop_TF <- GetTF(1/2, max_lag, type = "exp") %>% 
+  Spec2DF() %>% 
+  filter(freq > 0) %>% 
+  #DF2Spec() %>% 
+  mutate(spec_id = "model")
+
+# freq axes are the same within numerical precision
+max(abs(prop_TF$freq - TF_spec_reg$freq))
+
+```
+
+## Get best fit transfer function
+```{r}
+ObjectiveFunction <- function(TF_obs, TF_mod){
+  sum((log(TF_obs$spec) - log(TF_mod$spec))^2)
+}
+```
+
+
+
+## Use optimisation algorithm to get best fit value
+
+```{r}
+# use optimization algo
+foo <- function(x, TF) {
+  ObjectiveFunction(TF, GetTF(x, l=max_lag, type = "exp"))
+}
+
+```
+
+```{r}
+loss <- TF_spec_reg %>% 
+  group_by(spec_id) %>% 
+  do({
+    dat <- .
+    tau <- seq(0, 1, 0.01)
+    loss <- sapply(tau, function(x) {
+      ObjectiveFunction(dat, GetTF(x, l=max_lag, type = "exp"))
+      })
+    tibble(tau = tau, loss = loss)
+  })
+
+
+best_tau <- TF_spec_reg %>% 
+  group_by(name, spec_id) %>% 
+  do({
+    dat <- .
+    best_tau <- optimize(foo, interval = c(0, 10), TF = dat)$minimum
+    tibble(best_tau = best_tau)
+  })
+```
+
+```{r}
+loss %>% 
+  ggplot(aes(x = tau, y = loss, colour = spec_id)) +
+  geom_line()+
+  scale_colour_manual(values = pal_tree_TF) +
+  scale_y_log10() +
+  geom_vline(data = best_tau, aes(xintercept = best_tau, colour = spec_id), linetype = 3)
+```
+
+```{r}
+modTF <- best_tau %>% 
+  group_by(name, spec_id) %>% 
+  do({
+    Spec2DF(GetTF(.$best_tau, l=max_lag, type = "exp"))
+  }) %>% 
+  mutate(spec_id = name) %>% 
+  as_spec_df() %>% 
+  gg_spec()
+```
+
+```{r}
+gg_spec(TF_spec_reg, modTF) +
+  scale_colour_manual(values = pal_tree_TF)
+```
+
+
+
+```{r}
+fttd_filters <- best_tau %>% 
+  group_by(name, spec_id) %>% 
+  do({
+    tibble(lag = 0:6,
+           filt = dexp(lag, 1/.$best_tau))
+  }) %>% 
+  mutate(filt = filt / sum(filt))
+
+
+fttd_filters %>% 
+  ggplot(aes(x = lag, y = filt, colour = name)) +
+  geom_line() +
+  scale_colour_manual(values = pal_tree_TF) +
+  expand_limits(y = c(0,1))
+```
+
+
+```{r}
+write.csv(best_tau, file = "best_tau.csv", row.names = FALSE)
+write.csv(fttd_filters, file = "fttd_filters.csv", row.names = FALSE)
+```
+
